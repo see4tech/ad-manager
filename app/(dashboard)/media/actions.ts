@@ -92,6 +92,33 @@ export async function uploadAsset(formData: FormData) {
   revalidatePath('/media');
 }
 
+/**
+ * Inserta filas de activos ya subidos directamente a Storage por el cliente.
+ * Payload pequeño (solo metadata) → evita el límite de tamaño de la Function.
+ */
+export async function registerAssets(
+  items: {
+    folder_id: string | null;
+    name: string;
+    type: AssetType;
+    content_url: string;
+  }[],
+) {
+  const { supabase, user } = await requireUser();
+  if (items.length === 0) return;
+  const rows = items.map((it) => ({
+    user_id: user.id,
+    folder_id: it.folder_id,
+    name: it.name,
+    type: it.type,
+    content_url: it.content_url,
+    status: 'ready' as const,
+  }));
+  const { error } = await supabase.from('assets').insert(rows);
+  if (error) throw new Error(error.message);
+  revalidatePath('/media');
+}
+
 export async function deleteAsset(formData: FormData) {
   const { supabase } = await requireUser();
   const id = String(formData.get('id'));

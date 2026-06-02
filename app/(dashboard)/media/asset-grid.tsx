@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { FileText, MoreVertical, Trash2, Download } from 'lucide-react';
 import { useStorage } from '@/hooks/useStorage';
 import type { Asset } from '@/types';
@@ -29,6 +30,20 @@ async function downloadAsset(path: string, name: string) {
 }
 
 export function AssetGrid({ assets }: { assets: Asset[] }) {
+  const router = useRouter();
+
+  async function handleDelete(id: string, path: string | null) {
+    try {
+      const fd = new FormData();
+      fd.set('id', id);
+      fd.set('path', path ?? '');
+      await deleteAsset(fd);
+      router.refresh();
+    } catch (e) {
+      alert(`No se pudo eliminar: ${(e as Error).message}`);
+    }
+  }
+
   const paths = assets
     .map((a) => a.content_url)
     .filter((p): p is string => Boolean(p));
@@ -77,19 +92,12 @@ export function AssetGrid({ assets }: { assets: Asset[] }) {
                       <Download className="h-4 w-4" /> Descargar
                     </DropdownMenuItem>
                   )}
-                  <form action={deleteAsset}>
-                    <input type="hidden" name="id" value={asset.id} />
-                    <input
-                      type="hidden"
-                      name="path"
-                      value={asset.content_url ?? ''}
-                    />
-                    <DropdownMenuItem asChild>
-                      <button type="submit" className="w-full text-destructive">
-                        <Trash2 className="h-4 w-4" /> Eliminar
-                      </button>
-                    </DropdownMenuItem>
-                  </form>
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onSelect={() => handleDelete(asset.id, asset.content_url)}
+                  >
+                    <Trash2 className="h-4 w-4" /> Eliminar
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </CardContent>
