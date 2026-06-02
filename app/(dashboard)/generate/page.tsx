@@ -14,7 +14,8 @@ import {
   ReferencePicker,
   type SelectedReference,
 } from '../chat/reference-picker';
-import { generateMedia } from './actions';
+import { AudioPicker } from './audio-picker';
+import { generateMedia, type AudioReference } from './actions';
 
 const TYPES: { value: AssetType; label: string }[] = [
   { value: 'image', label: 'Imagen' },
@@ -30,6 +31,7 @@ export default function GeneratePage() {
   const [type, setType] = useState<AssetType>('image');
   const [prompt, setPrompt] = useState('');
   const [refs, setRefs] = useState<SelectedReference[]>([]);
+  const [voice, setVoice] = useState<AudioReference | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -78,6 +80,7 @@ export default function GeneratePage() {
       if (showRefs) {
         for (const r of refs) fd.append('reference_image', r.url);
       }
+      if (type === 'video' && voice) fd.set('voice_audio_id', voice.id);
       const res = await generateMedia(fd);
       if (res.text) setText(res.text);
       setStatus(
@@ -166,6 +169,38 @@ export default function GeneratePage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Voz para lip-sync (solo video) */}
+          {type === 'video' && (
+            <div className="flex items-center justify-between gap-2 rounded-md border p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Voz (lip-sync)</p>
+                {voice ? (
+                  <p className="truncate text-xs text-muted-foreground">
+                    Sincronizar con: {voice.name}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Opcional: sincroniza el video con un audio de voz tuyo.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {voice && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={() => setVoice(null)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+                <AudioPicker onSelect={setVoice} />
+              </div>
             </div>
           )}
 
