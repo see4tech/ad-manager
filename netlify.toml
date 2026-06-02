@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Scheduled Function — dispara la publicación de posts pendientes.
+# Ejecuta cada 5 minutos. Consulta scheduled_posts con status='pending'.
+[functions."trigger-posts"]
+  schedule = "*/5 * * * *"
