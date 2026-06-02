@@ -27,6 +27,13 @@ function providerUrl(type: AsyncMediaType): string | undefined {
     : process.env.MEDIA_AUDIO_PROVIDER_URL;
 }
 
+/** Modelo a usar por tipo (slug del proveedor; configurable por env). */
+function mediaModel(type: AsyncMediaType): string | undefined {
+  return type === 'video'
+    ? process.env.MEDIA_VIDEO_MODEL
+    : process.env.MEDIA_AUDIO_MODEL;
+}
+
 /** ¿Hay proveedor configurado para este tipo? */
 export function isMediaProviderConfigured(type: AssetType): boolean {
   if (type !== 'video' && type !== 'audio') return false;
@@ -44,6 +51,8 @@ export interface DispatchInput {
   assetId: string;
   type: AsyncMediaType;
   prompt: string;
+  /** Imágenes de referencia (URLs) para image/frame-to-video. */
+  referenceImages?: string[];
 }
 
 /**
@@ -64,7 +73,9 @@ export async function dispatchMediaJob(input: DispatchInput): Promise<void> {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      model: mediaModel(input.type),
       prompt: input.prompt,
+      reference_images: input.referenceImages ?? [],
       webhook: webhookUrl(input.assetId),
       metadata: { asset_id: input.assetId },
     }),
