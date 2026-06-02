@@ -27,6 +27,7 @@ export async function listImageReferences(): Promise<ImageReference[]> {
     .select('id, name, content_url')
     .eq('type', 'image')
     .eq('status', 'ready')
+    .eq('is_draft', false)
     .not('content_url', 'is', null)
     .order('created_at', { ascending: false })
     .limit(60);

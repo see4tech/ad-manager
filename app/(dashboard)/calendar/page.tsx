@@ -31,9 +31,11 @@ export default async function CalendarPage() {
       .gte('scheduled_at', gridStart.toISOString())
       .lte('scheduled_at', gridEnd.toISOString())
       .order('scheduled_at'),
-    supabase.from('assets').select('id, name').order('created_at', {
-      ascending: false,
-    }),
+    supabase
+      .from('assets')
+      .select('id, name')
+      .eq('is_draft', false)
+      .order('created_at', { ascending: false }),
   ]);
 
   const byDay = new Map<string, ScheduledPost[]>();

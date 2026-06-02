@@ -27,9 +27,12 @@ export default async function MediaPage({
     ? foldersQuery.eq('parent_id', folderId)
     : foldersQuery.is('parent_id', null);
 
-  const assetsQuery = supabase.from('assets').select('*').order('created_at', {
-    ascending: false,
-  });
+  // Solo activos guardados (no borradores en proceso de generación).
+  const assetsQuery = supabase
+    .from('assets')
+    .select('*')
+    .eq('is_draft', false)
+    .order('created_at', { ascending: false });
   const assets = folderId
     ? assetsQuery.eq('folder_id', folderId)
     : assetsQuery.is('folder_id', null);

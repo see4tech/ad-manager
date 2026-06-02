@@ -27,6 +27,7 @@ export interface Asset {
   content_url: string | null;
   status: AssetStatus;
   provider_job_id?: string | null;
+  is_draft?: boolean;
   created_at?: string;
 }
 
