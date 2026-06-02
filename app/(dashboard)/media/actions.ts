@@ -1,0 +1,110 @@
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import { createServerSupabase } from '@/lib/supabase';
+import type { AssetType } from '@/types';
+
+const BUCKET = 'assets';
+const SIGNED_URL_TTL = 60 * 60; // 1 hora, según especificación.
+
+async function requireUser() {
+  const supabase = createServerSupabase();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado.');
+  return { supabase, user };
+}
+
+/** Deduce el tipo de activo a partir del MIME. */
+function assetTypeFromMime(mime: string): AssetType {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  return 'text';
+}
+
+export async function createFolder(formData: FormData) {
+  const { supabase, user } = await requireUser();
+  const name = String(formData.get('name') ?? '').trim();
+  const parentId = (formData.get('parent_id') as string) || null;
+  if (!name) throw new Error('El nombre es obligatorio.');
+
+  const { error } = await supabase.from('folders').insert({
+    name,
+    parent_id: parentId,
+    user_id: user.id,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath('/media');
+}
+
+export async function deleteFolder(formData: FormData) {
+  const { supabase } = await requireUser();
+  const id = String(formData.get('id'));
+  const { error } = await supabase.from('folders').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+  revalidatePath('/media');
+}
+
+export async function uploadAsset(formData: FormData) {
+  const { supabase, user } = await requireUser();
+  const file = formData.get('file') as File | null;
+  const folderId = (formData.get('folder_id') as string) || null;
+  if (!file || file.size === 0) throw new Error('Selecciona un archivo.');
+
+  const type = assetTypeFromMime(file.type);
+  const safeName = file.name.replace(/[^\w.\-]/g, '_');
+  // Prefijo por usuario para cumplir la política RLS de Storage.
+  const path = `${user.id}/${folderId ?? 'root'}/${Date.now()}_${safeName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { error: dbError } = await supabase.from('assets').insert({
+    user_id: user.id,
+    folder_id: folderId,
+    name: file.name,
+    type,
+    content_url: path, // Guardamos la ruta del bucket; se firma al leer.
+    status: 'ready',
+  });
+  if (dbError) throw new Error(dbError.message);
+  revalidatePath('/media');
+}
+
+export async function deleteAsset(formData: FormData) {
+  const { supabase } = await requireUser();
+  const id = String(formData.get('id'));
+  const path = String(formData.get('path') ?? '');
+
+  if (path) {
+    await supabase.storage.from(BUCKET).remove([path]);
+  }
+  const { error } = await supabase.from('assets').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+  revalidatePath('/media');
+}
+
+/**
+ * Genera Signed URLs (1h) para una lista de rutas del bucket.
+ * Devuelve un mapa { path -> signedUrl } para consumo multimedia seguro.
+ */
+export async function getSignedUrls(
+  paths: string[],
+): Promise<Record<string, string>> {
+  if (paths.length === 0) return {};
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrls(paths, SIGNED_URL_TTL);
+  if (error) throw new Error(error.message);
+
+  const map: Record<string, string> = {};
+  for (const item of data ?? []) {
+    if (item.signedUrl && item.path) map[item.path] = item.signedUrl;
+  }
+  return map;
+}

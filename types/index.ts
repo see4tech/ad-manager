@@ -1,6 +1,7 @@
 /** Interfaces globales de TypeScript — alineadas con el esquema de Supabase. */
 
 export type AssetType = 'image' | 'video' | 'audio' | 'text';
+export type AssetStatus = 'processing' | 'ready' | 'failed';
 export type PostStatus = 'pending' | 'published' | 'failed';
 export type SocialPlatform = 'instagram' | 'facebook' | 'linkedin';
 
@@ -24,12 +25,18 @@ export interface Asset {
   name: string;
   type: AssetType;
   content_url: string | null;
+  status: AssetStatus;
+  created_at?: string;
 }
 
 export interface ScheduledPost {
   id: string;
+  user_id: string;
   asset_id: string | null;
   platforms: SocialPlatform[];
+  caption: string | null;
   status: PostStatus;
-  scheduled_at?: string;
+  scheduled_at: string;
+  error?: string | null;
+  created_at?: string;
 }
