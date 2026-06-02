@@ -20,8 +20,12 @@ export const MODELS = {
     process.env.OPENROUTER_MODEL_FAST || 'meta-llama/llama-3.3-70b-instruct',
   /** Generación de imágenes (salida multimodal). */
   IMAGE: process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-2.5-flash-image',
-  /** Generación de video (endpoint /api/v1/videos). */
-  VIDEO: process.env.OPENROUTER_VIDEO_MODEL || 'minimax/hailuo-2.3',
+  /**
+   * Generación de video (endpoint /api/v1/videos).
+   * Estrictamente desde env — sin fallback. Ver OPENROUTER_VIDEO_MODEL.
+   * Hay 14 modelos: https://openrouter.ai/api/v1/videos/models
+   */
+  VIDEO: process.env.OPENROUTER_VIDEO_MODEL || '',
 } as const;
 
 export type ChatRole = 'system' | 'user' | 'assistant';
@@ -373,10 +377,15 @@ function videoJobFrom(data: any): VideoJob {
 /** Encola un job de generación de video. Devuelve el job (status 'pending'). */
 export async function submitVideo(opts: SubmitVideoOptions): Promise<VideoJob> {
   const apiKey = getApiKey();
-  const body: Record<string, unknown> = {
-    model: opts.model ?? MODELS.VIDEO,
-    prompt: opts.prompt,
-  };
+  const model = opts.model || MODELS.VIDEO;
+  if (!model) {
+    throw new OpenRouterError(
+      'Falta OPENROUTER_VIDEO_MODEL (modelo de generación de video).',
+      undefined,
+      false,
+    );
+  }
+  const body: Record<string, unknown> = { model, prompt: opts.prompt };
   if (opts.referenceImages?.length) {
     body.input_references = opts.referenceImages.map((url) => ({
       type: 'image_url',
