@@ -20,6 +20,8 @@ export const MODELS = {
     process.env.OPENROUTER_MODEL_FAST || 'meta-llama/llama-3.3-70b-instruct',
   /** Generación de imágenes (salida multimodal). */
   IMAGE: process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-2.5-flash-image',
+  /** Generación de video (endpoint /api/v1/videos). */
+  VIDEO: process.env.OPENROUTER_VIDEO_MODEL || 'minimax/hailuo-2.3',
 } as const;
 
 export type ChatRole = 'system' | 'user' | 'assistant';
@@ -327,6 +329,120 @@ export async function generateImage(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ─── Generación de video (endpoint /api/v1/videos) ─────────────
+// Async: submit → job id → (callback_url o polling) → descargar contenido.
+
+export type VideoStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+
+export interface VideoJob {
+  id: string;
+  status: VideoStatus;
+  pollingUrl?: string;
+  /** URLs descargables sin auth (presentes cuando status='completed'). */
+  unsignedUrls?: string[];
+  error?: string;
+}
+
+export interface SubmitVideoOptions {
+  prompt: string;
+  model?: string;
+  /** Imágenes de referencia de estilo/contenido (reference-to-video). */
+  referenceImages?: string[];
+  /** Generar audio sincronizado (voz). Default true en modelos que lo soporten. */
+  generateAudio?: boolean;
+  duration?: number;
+  resolution?: string;
+  aspectRatio?: string;
+  /** Webhook HTTPS que OpenRouter llamará al completar el job. */
+  callbackUrl?: string;
+  signal?: AbortSignal;
+}
+
+function videoJobFrom(data: any): VideoJob {
+  return {
+    id: data.id,
+    status: data.status,
+    pollingUrl: data.polling_url,
+    unsignedUrls: data.unsigned_urls,
+    error: data.error,
+  };
+}
+
+/** Encola un job de generación de video. Devuelve el job (status 'pending'). */
+export async function submitVideo(opts: SubmitVideoOptions): Promise<VideoJob> {
+  const apiKey = getApiKey();
+  const body: Record<string, unknown> = {
+    model: opts.model ?? MODELS.VIDEO,
+    prompt: opts.prompt,
+  };
+  if (opts.referenceImages?.length) {
+    body.input_references = opts.referenceImages.map((url) => ({
+      type: 'image_url',
+      image_url: { url },
+    }));
+  }
+  if (opts.generateAudio !== undefined) body.generate_audio = opts.generateAudio;
+  if (opts.duration) body.duration = opts.duration;
+  if (opts.resolution) body.resolution = opts.resolution;
+  if (opts.aspectRatio) body.aspect_ratio = opts.aspectRatio;
+  if (opts.callbackUrl) body.callback_url = opts.callbackUrl;
+
+  const res = await fetch(`${OPENROUTER_BASE_URL}/videos`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new OpenRouterError(
+      `OpenRouter (video) respondió ${res.status}: ${JSON.stringify(data)}`,
+      res.status,
+      isRetryableStatus(res.status),
+    );
+  }
+  return videoJobFrom(data);
+}
+
+/** Consulta el estado de un job de video. */
+export async function getVideoJob(id: string): Promise<VideoJob> {
+  const apiKey = getApiKey();
+  const res = await fetch(`${OPENROUTER_BASE_URL}/videos/${id}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new OpenRouterError(
+      `OpenRouter (video status) ${res.status}`,
+      res.status,
+      isRetryableStatus(res.status),
+    );
+  }
+  return videoJobFrom(data);
+}
+
+/** Descarga el binario del video generado (requiere API key). */
+export async function downloadVideo(
+  id: string,
+  index = 0,
+): Promise<{ buffer: ArrayBuffer; contentType: string }> {
+  const apiKey = getApiKey();
+  const res = await fetch(
+    `${OPENROUTER_BASE_URL}/videos/${id}/content?index=${index}`,
+    { headers: { Authorization: `Bearer ${apiKey}` } },
+  );
+  if (!res.ok) {
+    throw new OpenRouterError(`Descarga de video ${res.status}`, res.status, false);
+  }
+  return {
+    buffer: await res.arrayBuffer(),
+    contentType: res.headers.get('content-type') ?? 'video/mp4',
+  };
 }
 
 /** Backoff exponencial con jitter; respeta Retry-After si está presente. */

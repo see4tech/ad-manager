@@ -2,9 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { createServerSupabase } from '@/lib/supabase';
-import { chatCompletion, generateImage } from '@/lib/openrouter';
+import { chatCompletion, generateImage, submitVideo } from '@/lib/openrouter';
 import { dispatchMediaJob, isMediaProviderConfigured } from '@/lib/media-generation';
 import type { AssetType } from '@/types';
+
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+const WEBHOOK_SECRET = process.env.MEDIA_WEBHOOK_SECRET ?? '';
 
 const BUCKET = 'assets';
 
@@ -76,8 +79,8 @@ export async function generateMedia(formData: FormData): Promise<GenerateResult>
   }
 
   // ── Video / Audio: generación asíncrona (excede el timeout) ──
-  // Se persiste 'processing' y se despacha al proveedor; el webhook
-  // (/api/generate/webhook) actualizará content_url y status al terminar.
+  // Se persiste 'processing'; el webhook (/api/generate/webhook) actualizará
+  // content_url y status al terminar.
   const { data, error } = await supabase
     .from('assets')
     .insert({
@@ -91,19 +94,39 @@ export async function generateMedia(formData: FormData): Promise<GenerateResult>
     .single();
   if (error) throw new Error(error.message);
 
+  const callbackUrl = `${SITE}/api/generate/webhook?asset_id=${data.id}&token=${WEBHOOK_SECRET}`;
+
+  // Video → OpenRouter /api/v1/videos (async, con callback nativo).
+  if (type === 'video') {
+    try {
+      const refs = formData.getAll('reference_image').map(String).filter(Boolean);
+      const job = await submitVideo({
+        prompt,
+        referenceImages: refs,
+        generateAudio: true, // voz/audio sincronizado si el modelo lo soporta
+        callbackUrl,
+      });
+      await supabase
+        .from('assets')
+        .update({ provider_job_id: job.id })
+        .eq('id', data.id);
+    } catch (err) {
+      await supabase.from('assets').update({ status: 'failed' }).eq('id', data.id);
+      throw new Error(`No se pudo encolar el video: ${(err as Error).message}`);
+    }
+    revalidatePath('/media');
+    return { assetId: data.id, status: 'processing' };
+  }
+
+  // Audio → proveedor externo configurable (seam lib/media-generation).
   if (isMediaProviderConfigured(type)) {
     try {
       await dispatchMediaJob({ assetId: data.id, type, prompt });
     } catch (err) {
-      await supabase
-        .from('assets')
-        .update({ status: 'failed' })
-        .eq('id', data.id);
+      await supabase.from('assets').update({ status: 'failed' }).eq('id', data.id);
       throw new Error(`No se pudo encolar el job: ${(err as Error).message}`);
     }
   }
-  // Si no hay proveedor configurado, el activo queda 'processing' a la espera
-  // de que se configure (ver lib/media-generation.ts).
 
   revalidatePath('/media');
   return { assetId: data.id, status: 'processing' };
