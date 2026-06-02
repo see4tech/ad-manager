@@ -74,20 +74,27 @@ alter table public.scheduled_posts     enable row level security;
 alter table public.social_connections  enable row level security;
 
 -- profiles: el usuario gestiona su propio perfil.
+drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own" on public.profiles
   for select using (auth.uid() = id);
+drop policy if exists "profiles_update_own" on public.profiles;
 create policy "profiles_update_own" on public.profiles
   for update using (auth.uid() = id);
+drop policy if exists "profiles_insert_own" on public.profiles;
 create policy "profiles_insert_own" on public.profiles
   for insert with check (auth.uid() = id);
 
 -- Helper macro replicado por tabla: owner == auth.uid().
+drop policy if exists "folders_all_own" on public.folders;
 create policy "folders_all_own" on public.folders
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "assets_all_own" on public.assets;
 create policy "assets_all_own" on public.assets
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "scheduled_posts_all_own" on public.scheduled_posts;
 create policy "scheduled_posts_all_own" on public.scheduled_posts
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "social_connections_all_own" on public.social_connections;
 create policy "social_connections_all_own" on public.social_connections
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
@@ -121,14 +128,17 @@ values ('assets', 'assets', false)
 on conflict (id) do nothing;
 
 -- El usuario solo opera sobre objetos bajo su prefijo: assets/<uid>/...
+drop policy if exists "assets_storage_select_own" on storage.objects;
 create policy "assets_storage_select_own" on storage.objects
   for select using (
     bucket_id = 'assets' and (storage.foldername(name))[1] = auth.uid()::text
   );
+drop policy if exists "assets_storage_insert_own" on storage.objects;
 create policy "assets_storage_insert_own" on storage.objects
   for insert with check (
     bucket_id = 'assets' and (storage.foldername(name))[1] = auth.uid()::text
   );
+drop policy if exists "assets_storage_delete_own" on storage.objects;
 create policy "assets_storage_delete_own" on storage.objects
   for delete using (
     bucket_id = 'assets' and (storage.foldername(name))[1] = auth.uid()::text
