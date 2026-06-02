@@ -11,7 +11,7 @@ import type { SocialPlatform } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
-const SITE = process.env.OPENROUTER_SITE_URL ?? 'http://localhost:3000';
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 const REDIRECT = `${SITE}/api/social/callback`;
 
 /** URLs de autorización OAuth por plataforma. */

@@ -116,13 +116,6 @@ export async function chatCompletion(
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
   };
-  // Cabeceras opcionales de atribución (rankings de OpenRouter).
-  if (process.env.OPENROUTER_SITE_URL) {
-    headers['HTTP-Referer'] = process.env.OPENROUTER_SITE_URL;
-  }
-  if (process.env.OPENROUTER_APP_NAME) {
-    headers['X-Title'] = process.env.OPENROUTER_APP_NAME;
-  }
 
   const body = JSON.stringify({
     model,
