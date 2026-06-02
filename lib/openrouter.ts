@@ -11,13 +11,14 @@
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
-/** Modelos recomendados por la especificación. */
+/** Modelos. Todos configurables por env var (slugs cambian en OpenRouter). */
 export const MODELS = {
   /** Alta complejidad de marketing / copys de conversión. */
-  COPY_HIGH: 'anthropic/claude-3.5-sonnet',
+  COPY_HIGH: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.5',
   /** Flujos rápidos y de menor coste. */
-  COPY_FAST: 'meta-llama/llama-3-70b-instruct',
-  /** Generación de imágenes (salida multimodal). Configurable por env. */
+  COPY_FAST:
+    process.env.OPENROUTER_MODEL_FAST || 'meta-llama/llama-3.3-70b-instruct',
+  /** Generación de imágenes (salida multimodal). */
   IMAGE: process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-2.5-flash-image',
 } as const;
 
