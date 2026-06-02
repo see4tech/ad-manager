@@ -38,14 +38,18 @@ export function authorizeUrl(platform: SocialPlatform, state: string): string {
     });
     return `https://www.linkedin.com/oauth/v2/authorization?${p}`;
   }
-  const p = new URLSearchParams({
+  // Facebook Login for Business usa config_id (la configuración define los
+  // permisos y assets). Si no hay config, se cae al flujo clásico con scope.
+  const params: Record<string, string> = {
     client_id: process.env.META_APP_ID ?? '',
     redirect_uri: redirectUri(platform),
-    scope: SCOPES[platform],
     response_type: 'code',
     state,
-  });
-  return `https://www.facebook.com/v20.0/dialog/oauth?${p}`;
+  };
+  const configId = process.env.META_CONFIG_ID;
+  if (configId) params.config_id = configId;
+  else params.scope = SCOPES[platform];
+  return `https://www.facebook.com/v20.0/dialog/oauth?${new URLSearchParams(params)}`;
 }
 
 export interface TokenExchange {
