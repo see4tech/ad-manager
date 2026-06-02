@@ -57,7 +57,7 @@ export function MediaToolbar({ folderId }: { folderId: string | null }) {
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Subir activo</DialogTitle>
+            <DialogTitle>Subir activos</DialogTitle>
           </DialogHeader>
           <form
             ref={uploadForm}
@@ -73,8 +73,12 @@ export function MediaToolbar({ folderId }: { folderId: string | null }) {
               name="file"
               type="file"
               accept="image/*,video/*,audio/*"
+              multiple
               required
             />
+            <p className="text-xs text-muted-foreground">
+              Puedes seleccionar varios archivos a la vez.
+            </p>
             <Button type="submit" className="w-full">
               Subir
             </Button>

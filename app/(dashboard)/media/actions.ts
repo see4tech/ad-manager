@@ -49,28 +49,45 @@ export async function deleteFolder(formData: FormData) {
 
 export async function uploadAsset(formData: FormData) {
   const { supabase, user } = await requireUser();
-  const file = formData.get('file') as File | null;
+  // Acepta múltiples archivos (input multiple, name="file").
+  const files = formData
+    .getAll('file')
+    .filter((f): f is File => f instanceof File && f.size > 0);
   const folderId = (formData.get('folder_id') as string) || null;
-  if (!file || file.size === 0) throw new Error('Selecciona un archivo.');
+  if (files.length === 0) throw new Error('Selecciona al menos un archivo.');
 
-  const type = assetTypeFromMime(file.type);
-  const safeName = file.name.replace(/[^\w.\-]/g, '_');
-  // Prefijo por usuario para cumplir la política RLS de Storage.
-  const path = `${user.id}/${folderId ?? 'root'}/${Date.now()}_${safeName}`;
+  const rows: {
+    user_id: string;
+    folder_id: string | null;
+    name: string;
+    type: AssetType;
+    content_url: string;
+    status: 'ready';
+  }[] = [];
 
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, file, { contentType: file.type, upsert: false });
-  if (uploadError) throw new Error(uploadError.message);
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const type = assetTypeFromMime(file.type);
+    const safeName = file.name.replace(/[^\w.\-]/g, '_');
+    // Prefijo por usuario para cumplir la política RLS de Storage.
+    const path = `${user.id}/${folderId ?? 'root'}/${Date.now()}_${i}_${safeName}`;
 
-  const { error: dbError } = await supabase.from('assets').insert({
-    user_id: user.id,
-    folder_id: folderId,
-    name: file.name,
-    type,
-    content_url: path, // Guardamos la ruta del bucket; se firma al leer.
-    status: 'ready',
-  });
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+    if (uploadError) throw new Error(uploadError.message);
+
+    rows.push({
+      user_id: user.id,
+      folder_id: folderId,
+      name: file.name,
+      type,
+      content_url: path,
+      status: 'ready',
+    });
+  }
+
+  const { error: dbError } = await supabase.from('assets').insert(rows);
   if (dbError) throw new Error(dbError.message);
   revalidatePath('/media');
 }
