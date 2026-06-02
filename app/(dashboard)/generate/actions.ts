@@ -52,7 +52,8 @@ export async function generateMedia(formData: FormData): Promise<GenerateResult>
 
   // ── Imagen: generación síncrona (cabe en el timeout) ─────────
   if (type === 'image') {
-    const img = await generateImage({ prompt });
+    const imgRefs = formData.getAll('reference_image').map(String).filter(Boolean);
+    const img = await generateImage({ prompt, referenceImages: imgRefs });
     const ext = img.mimeType.split('/')[1] ?? 'png';
     const path = `${user.id}/generated/${Date.now()}.${ext}`;
     const bytes = Buffer.from(img.base64, 'base64');
