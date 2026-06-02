@@ -24,9 +24,24 @@ export const MODELS = {
 
 export type ChatRole = 'system' | 'user' | 'assistant';
 
+/** Parte de contenido multimodal (texto o imagen de referencia). */
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 export interface ChatMessage {
   role: ChatRole;
-  content: string;
+  /** Texto plano, o array de partes para mensajes con imágenes de referencia. */
+  content: string | ContentPart[];
+}
+
+/** ¿Algún mensaje incluye una imagen? (requiere modelo con visión) */
+export function hasImageContent(messages: ChatMessage[]): boolean {
+  return messages.some(
+    (m) =>
+      Array.isArray(m.content) &&
+      m.content.some((p) => p.type === 'image_url'),
+  );
 }
 
 export interface ChatCompletionOptions {
@@ -218,6 +233,8 @@ export interface GenerateImageOptions {
   prompt: string;
   model?: string;
   aspectRatio?: '1:1' | '2:3' | '3:2';
+  /** Imágenes de referencia (data URLs o URLs http) para image-to-image. */
+  referenceImages?: string[];
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -235,6 +252,7 @@ export async function generateImage(
     prompt,
     model = MODELS.IMAGE,
     aspectRatio = '1:1',
+    referenceImages = [],
     timeoutMs = 55_000,
     signal,
   } = options;
@@ -246,6 +264,14 @@ export async function generateImage(
     ? anySignal([signal, controller.signal])
     : controller.signal;
 
+  // Mensaje multimodal: prompt + imágenes de referencia (si las hay).
+  const content: ContentPart[] = [
+    { type: 'text', text: prompt },
+    ...referenceImages.map(
+      (url): ContentPart => ({ type: 'image_url', image_url: { url } }),
+    ),
+  ];
+
   try {
     const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
       method: 'POST',
@@ -255,7 +281,7 @@ export async function generateImage(
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [{ role: 'user', content }],
         modalities: ['image', 'text'],
         image_config: { aspect_ratio: aspectRatio },
       }),

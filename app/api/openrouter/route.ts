@@ -13,6 +13,7 @@ import {
   ADVERTISING_SYSTEM_PROMPT,
   OpenRouterError,
   MODELS,
+  hasImageContent,
   type ChatMessage,
 } from '@/lib/openrouter';
 
@@ -46,7 +47,12 @@ export async function POST(req: NextRequest) {
     ? body.messages
     : [{ role: 'system', content: ADVERTISING_SYSTEM_PROMPT }, ...body.messages];
 
-  const model = body.model ?? (body.fast ? MODELS.COPY_FAST : MODELS.COPY_HIGH);
+  // Con imágenes de referencia se requiere un modelo con visión: forzamos el
+  // modelo alto (el rápido suele ser solo-texto).
+  const withImages = hasImageContent(messages);
+  const model =
+    body.model ??
+    (withImages || !body.fast ? MODELS.COPY_HIGH : MODELS.COPY_FAST);
 
   try {
     const result = await chatCompletion({
