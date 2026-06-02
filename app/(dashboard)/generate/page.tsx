@@ -23,6 +23,7 @@ const TYPES: { value: AssetType; label: string }[] = [
 export default function GeneratePage() {
   const [type, setType] = useState<AssetType>('image');
   const [status, setStatus] = useState<string | null>(null);
+  const [text, setText] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   return (
@@ -37,9 +38,11 @@ export default function GeneratePage() {
             action={async (fd) => {
               setLoading(true);
               setStatus(null);
+              setText(null);
               try {
                 fd.set('type', type);
                 const res = await generateMedia(fd);
+                if (res.text) setText(res.text);
                 setStatus(
                   res.status === 'processing'
                     ? 'En proceso — aparecerá en Activos al completarse.'
@@ -78,6 +81,11 @@ export default function GeneratePage() {
           </form>
           {status && (
             <p className="mt-4 text-sm text-muted-foreground">{status}</p>
+          )}
+          {text && (
+            <pre className="mt-3 whitespace-pre-wrap rounded-md bg-secondary p-3 text-sm">
+              {text}
+            </pre>
           )}
         </CardContent>
       </Card>

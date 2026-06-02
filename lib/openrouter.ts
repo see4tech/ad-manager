@@ -17,6 +17,8 @@ export const MODELS = {
   COPY_HIGH: 'anthropic/claude-3.5-sonnet',
   /** Flujos rápidos y de menor coste. */
   COPY_FAST: 'meta-llama/llama-3-70b-instruct',
+  /** Generación de imágenes (salida multimodal). Configurable por env. */
+  IMAGE: process.env.OPENROUTER_IMAGE_MODEL || 'google/gemini-2.5-flash-image',
 } as const;
 
 export type ChatRole = 'system' | 'user' | 'assistant';
@@ -202,6 +204,102 @@ export async function chatCompletion(
     false,
     lastError,
   );
+}
+
+export interface GeneratedImage {
+  /** Data URL base64 (ej: data:image/png;base64,...). */
+  dataUrl: string;
+  mimeType: string;
+  base64: string;
+}
+
+export interface GenerateImageOptions {
+  prompt: string;
+  model?: string;
+  aspectRatio?: '1:1' | '2:3' | '3:2';
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Genera una imagen vía el endpoint de chat completions de OpenRouter
+ * (modalities: ['image','text']). Devuelve la imagen como data URL base64.
+ *
+ * @throws {OpenRouterError}
+ */
+export async function generateImage(
+  options: GenerateImageOptions,
+): Promise<GeneratedImage> {
+  const {
+    prompt,
+    model = MODELS.IMAGE,
+    aspectRatio = '1:1',
+    timeoutMs = 55_000,
+    signal,
+  } = options;
+
+  const apiKey = getApiKey();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const composedSignal = signal
+    ? anySignal([signal, controller.signal])
+    : controller.signal;
+
+  try {
+    const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        modalities: ['image', 'text'],
+        image_config: { aspect_ratio: aspectRatio },
+      }),
+      signal: composedSignal,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      throw new OpenRouterError(
+        `OpenRouter (imagen) respondió ${res.status}: ${errText}`,
+        res.status,
+        isRetryableStatus(res.status),
+      );
+    }
+
+    const data = (await res.json()) as any;
+    const url: string | undefined =
+      data?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    if (!url) {
+      throw new OpenRouterError(
+        'La respuesta no contenía ninguna imagen.',
+        undefined,
+        false,
+      );
+    }
+
+    const match = /^data:([^;]+);base64,(.+)$/s.exec(url);
+    if (!match) {
+      throw new OpenRouterError('Formato de imagen inesperado.', undefined, false);
+    }
+    return { dataUrl: url, mimeType: match[1], base64: match[2] };
+  } catch (err) {
+    if (err instanceof OpenRouterError) throw err;
+    const isAbort = err instanceof Error && err.name === 'AbortError';
+    throw new OpenRouterError(
+      isAbort
+        ? `Timeout de generación de imagen tras ${timeoutMs}ms.`
+        : `Fallo de red en generación de imagen: ${(err as Error).message}`,
+      undefined,
+      false,
+      err,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Backoff exponencial con jitter; respeta Retry-After si está presente. */

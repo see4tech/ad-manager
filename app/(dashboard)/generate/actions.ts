@@ -2,32 +2,19 @@
 
 import { revalidatePath } from 'next/cache';
 import { createServerSupabase } from '@/lib/supabase';
-import { chatCompletion } from '@/lib/openrouter';
+import { chatCompletion, generateImage } from '@/lib/openrouter';
+import { dispatchMediaJob, isMediaProviderConfigured } from '@/lib/media-generation';
 import type { AssetType } from '@/types';
 
-/**
- * Modelos multimedia disponibles vía OpenRouter.
- * (Imagen: SDXL/Flux; audiovisual mediante conectores asíncronos.)
- */
-export const MEDIA_MODELS: Record<string, string> = {
-  image: 'stabilityai/sdxl',
-  video: 'connector/video',
-  audio: 'connector/audio',
-};
+const BUCKET = 'assets';
 
 interface GenerateResult {
   assetId: string;
   status: 'processing' | 'ready';
+  /** Texto generado (solo para type='text'), para previsualización inmediata. */
+  text?: string;
 }
 
-/**
- * Lanza una generación multimedia.
- *
- * - text: se resuelve de inmediato con el LLM y se guarda como activo 'ready'.
- * - image/video/audio: por el timeout de Netlify Functions, se persiste un
- *   activo con status 'processing'. La resolución llega por webhook del
- *   proveedor o por polling (ver app/api/cron y app/api/social/webhooks).
- */
 export async function generateMedia(formData: FormData): Promise<GenerateResult> {
   const supabase = createServerSupabase();
   const {
@@ -39,6 +26,7 @@ export async function generateMedia(formData: FormData): Promise<GenerateResult>
   const type = String(formData.get('type') ?? 'text') as AssetType;
   if (!prompt) throw new Error('El prompt es obligatorio.');
 
+  // ── Texto: resolución inmediata con el LLM ───────────────────
   if (type === 'text') {
     const { content } = await chatCompletion({
       messages: [{ role: 'user', content: prompt }],
@@ -55,13 +43,41 @@ export async function generateMedia(formData: FormData): Promise<GenerateResult>
       .select('id')
       .single();
     if (error) throw new Error(error.message);
-    // El texto generado se devuelve para previsualización inmediata.
-    void content;
+    revalidatePath('/media');
+    return { assetId: data.id, status: 'ready', text: content };
+  }
+
+  // ── Imagen: generación síncrona (cabe en el timeout) ─────────
+  if (type === 'image') {
+    const img = await generateImage({ prompt });
+    const ext = img.mimeType.split('/')[1] ?? 'png';
+    const path = `${user.id}/generated/${Date.now()}.${ext}`;
+    const bytes = Buffer.from(img.base64, 'base64');
+
+    const { error: upErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, bytes, { contentType: img.mimeType, upsert: false });
+    if (upErr) throw new Error(upErr.message);
+
+    const { data, error } = await supabase
+      .from('assets')
+      .insert({
+        user_id: user.id,
+        name: prompt.slice(0, 60),
+        type: 'image',
+        content_url: path,
+        status: 'ready',
+      })
+      .select('id')
+      .single();
+    if (error) throw new Error(error.message);
     revalidatePath('/media');
     return { assetId: data.id, status: 'ready' };
   }
 
-  // Multimedia pesada: registrar estado preliminar 'processing'.
+  // ── Video / Audio: generación asíncrona (excede el timeout) ──
+  // Se persiste 'processing' y se despacha al proveedor; el webhook
+  // (/api/generate/webhook) actualizará content_url y status al terminar.
   const { data, error } = await supabase
     .from('assets')
     .insert({
@@ -75,8 +91,20 @@ export async function generateMedia(formData: FormData): Promise<GenerateResult>
     .single();
   if (error) throw new Error(error.message);
 
-  // TODO(async): disparar el job al conector (MEDIA_MODELS[type]); el callback
-  // actualizará content_url y status='ready'. Aquí solo se deja encolado.
+  if (isMediaProviderConfigured(type)) {
+    try {
+      await dispatchMediaJob({ assetId: data.id, type, prompt });
+    } catch (err) {
+      await supabase
+        .from('assets')
+        .update({ status: 'failed' })
+        .eq('id', data.id);
+      throw new Error(`No se pudo encolar el job: ${(err as Error).message}`);
+    }
+  }
+  // Si no hay proveedor configurado, el activo queda 'processing' a la espera
+  // de que se configure (ver lib/media-generation.ts).
+
   revalidatePath('/media');
   return { assetId: data.id, status: 'processing' };
 }
