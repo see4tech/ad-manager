@@ -12,17 +12,9 @@ import { createServerSupabase } from '@/lib/supabase';
 import type { Asset, ScheduledPost } from '@/types';
 import { cn } from '@/lib/utils';
 import { ScheduleDialog } from './schedule-dialog';
-import { deleteScheduledPost } from './actions';
-import { Button } from '@/app/components/ui/button';
-import { Trash2 } from 'lucide-react';
+import { PostChip } from './post-chip';
 
 export const dynamic = 'force-dynamic';
-
-const STATUS_COLOR: Record<string, string> = {
-  pending: 'bg-amber-500/15 text-amber-700',
-  published: 'bg-green-500/15 text-green-700',
-  failed: 'bg-destructive/15 text-destructive',
-};
 
 export default async function CalendarPage() {
   const supabase = createServerSupabase();
@@ -80,27 +72,7 @@ export default async function CalendarPage() {
               <div className="mb-1 text-xs">{format(day, 'd')}</div>
               <div className="space-y-1">
                 {dayPosts.map((p) => (
-                  <form
-                    key={p.id}
-                    action={deleteScheduledPost}
-                    className={cn(
-                      'group flex items-center justify-between gap-1 rounded px-1.5 py-0.5 text-[11px]',
-                      STATUS_COLOR[p.status],
-                    )}
-                  >
-                    <span className="truncate">
-                      {format(new Date(p.scheduled_at!), 'HH:mm')}{' '}
-                      {p.platforms.join(', ')}
-                    </span>
-                    <input type="hidden" name="id" value={p.id} />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-4 w-4 opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </form>
+                  <PostChip key={p.id} post={p} />
                 ))}
               </div>
             </div>

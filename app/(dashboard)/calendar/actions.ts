@@ -13,6 +13,47 @@ async function requireUser() {
   return { supabase, user };
 }
 
+const BUCKET = 'assets';
+
+export interface PostDownload {
+  caption: string | null;
+  mediaUrl: string | null;
+  mediaName: string | null;
+}
+
+/**
+ * Devuelve el caption y una Signed URL de descarga del media asociado a un
+ * post programado, para que el usuario lo suba manualmente a sus redes.
+ */
+export async function getPostDownload(postId: string): Promise<PostDownload> {
+  const { supabase } = await requireUser();
+  const { data: post, error } = await supabase
+    .from('scheduled_posts')
+    .select('caption, asset_id')
+    .eq('id', postId)
+    .single();
+  if (error) throw new Error(error.message);
+
+  let mediaUrl: string | null = null;
+  let mediaName: string | null = null;
+  if (post?.asset_id) {
+    const { data: asset } = await supabase
+      .from('assets')
+      .select('name, content_url')
+      .eq('id', post.asset_id)
+      .single();
+    if (asset?.content_url) {
+      const safe = (asset.name || 'media').replace(/[^\w.\-]/g, '_');
+      const { data: signed } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(asset.content_url, 120, { download: safe });
+      mediaUrl = signed?.signedUrl ?? null;
+      mediaName = asset.name ?? null;
+    }
+  }
+  return { caption: post?.caption ?? null, mediaUrl, mediaName };
+}
+
 export async function schedulePost(formData: FormData) {
   const { supabase, user } = await requireUser();
 
