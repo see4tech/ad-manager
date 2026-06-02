@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, MoreVertical, Trash2 } from 'lucide-react';
+import { FileText, MoreVertical, Trash2, Download } from 'lucide-react';
 import { useStorage } from '@/hooks/useStorage';
 import type { Asset } from '@/types';
 import { Card, CardContent } from '@/app/components/ui/card';
@@ -11,7 +11,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/app/components/ui/dropdown-menu';
-import { deleteAsset } from './actions';
+import { deleteAsset, getDownloadUrl } from './actions';
+
+/** Descarga el activo forzando "guardar como" con su nombre original. */
+async function downloadAsset(path: string, name: string) {
+  try {
+    const url = await getDownloadUrl(path, name);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (e) {
+    alert(`No se pudo descargar: ${(e as Error).message}`);
+  }
+}
 
 export function AssetGrid({ assets }: { assets: Asset[] }) {
   const paths = assets
@@ -53,6 +68,15 @@ export function AssetGrid({ assets }: { assets: Asset[] }) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {asset.content_url && asset.status === 'ready' && (
+                    <DropdownMenuItem
+                      onSelect={() =>
+                        downloadAsset(asset.content_url as string, asset.name)
+                      }
+                    >
+                      <Download className="h-4 w-4" /> Descargar
+                    </DropdownMenuItem>
+                  )}
                   <form action={deleteAsset}>
                     <input type="hidden" name="id" value={asset.id} />
                     <input

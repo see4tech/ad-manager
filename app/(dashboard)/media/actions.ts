@@ -125,3 +125,20 @@ export async function getSignedUrls(
   }
   return map;
 }
+
+/**
+ * Signed URL con descarga forzada (Content-Disposition: attachment).
+ * Para que el usuario descargue el activo y lo suba manualmente a sus redes.
+ */
+export async function getDownloadUrl(
+  path: string,
+  fileName: string,
+): Promise<string> {
+  const { supabase } = await requireUser();
+  const safe = fileName.replace(/[^\w.\-]/g, '_') || 'descarga';
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 120, { download: safe });
+  if (error) throw new Error(error.message);
+  return data.signedUrl;
+}
