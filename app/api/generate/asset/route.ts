@@ -35,7 +35,9 @@ export async function GET(req: NextRequest) {
 
   const { data: asset, error } = await supabase
     .from('assets')
-    .select('type, status, content_url, is_draft, provider_job_id, voice_audio_path')
+    .select(
+      'type, status, content_url, is_draft, provider_job_id, voice_audio_path, error',
+    )
     .eq('id', assetId)
     .single();
   if (error || !asset) {
@@ -44,27 +46,28 @@ export async function GET(req: NextRequest) {
 
   let status: string = asset.status;
   let contentUrl: string | null = asset.content_url;
+  let errorMsg: string | null = asset.error ?? null;
 
   // Auto-finalización de video (no depende del webhook de OpenRouter):
-  // si el video sigue 'processing' y no requiere lip-sync, consultamos el
-  // estado en OpenRouter y, si está listo, descargamos y guardamos aquí mismo.
-  if (
+  // consulta el estado del job y descarga/guarda o captura el motivo del fallo.
+  const needsJobCheck =
     asset.type === 'video' &&
-    status === 'processing' &&
     asset.provider_job_id &&
-    !asset.voice_audio_path
-  ) {
+    !asset.voice_audio_path &&
+    (status === 'processing' || (status === 'failed' && !errorMsg));
+
+  if (needsJobCheck) {
     try {
-      const job = await getVideoJob(asset.provider_job_id);
+      const job = await getVideoJob(asset.provider_job_id as string);
       if (job.status === 'failed') {
+        errorMsg = job.error || 'El proveedor no detalló el motivo.';
         await supabase
           .from('assets')
-          .update({ status: 'failed' })
-          .eq('id', assetId)
-          .eq('status', 'processing');
+          .update({ status: 'failed', error: errorMsg })
+          .eq('id', assetId);
         status = 'failed';
       } else if (job.status === 'completed') {
-        const dl = await downloadVideo(asset.provider_job_id);
+        const dl = await downloadVideo(asset.provider_job_id as string);
         const path = `${user.id}/generated/${Date.now()}.mp4`;
         const { error: upErr } = await supabase.storage
           .from(BUCKET)
@@ -72,7 +75,9 @@ export async function GET(req: NextRequest) {
             contentType: dl.contentType,
             upsert: false,
           });
-        if (!upErr) {
+        if (upErr) {
+          errorMsg = `No se pudo guardar el video: ${upErr.message}`;
+        } else {
           await supabase
             .from('assets')
             .update({ content_url: path, status: 'ready' })
@@ -82,8 +87,10 @@ export async function GET(req: NextRequest) {
           contentUrl = path;
         }
       }
-    } catch {
-      /* reintentar en el siguiente poll */
+    } catch (e) {
+      // Error al consultar/descargar: lo reportamos sin marcar 'failed'
+      // (puede ser transitorio); el siguiente poll reintenta.
+      errorMsg = `Error consultando el job: ${(e as Error).message}`;
     }
   }
 
@@ -98,6 +105,7 @@ export async function GET(req: NextRequest) {
     status,
     type: asset.type,
     url,
+    error: errorMsg,
     isDraft: Boolean(asset.is_draft),
   });
 }

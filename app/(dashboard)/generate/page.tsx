@@ -31,6 +31,7 @@ async function fetchPreview(assetId: string) {
     status: 'processing' | 'ready' | 'failed';
     type: AssetType;
     url: string | null;
+    error?: string | null;
   }>;
 }
 
@@ -126,7 +127,7 @@ export default function GeneratePage() {
         return;
       }
       if (p?.status === 'failed') {
-        setMessage('La generación falló. Intenta de nuevo.');
+        setMessage(`⚠️ La generación falló: ${p.error ?? 'motivo desconocido'}`);
         setPhase('error');
         return;
       }
