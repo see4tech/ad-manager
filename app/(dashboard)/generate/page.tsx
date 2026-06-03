@@ -23,7 +23,6 @@ import {
 } from '../chat/reference-picker';
 import { AudioPicker } from './audio-picker';
 import {
-  generateMedia,
   getAssetPreview,
   saveAsset,
   discardAsset,
@@ -134,13 +133,18 @@ export default function GeneratePage() {
     setPreviewUrl(null);
     setResult(null);
     try {
-      const fd = new FormData();
-      fd.set('type', genType);
-      fd.set('prompt', prompt);
-      if (showRefs) for (const r of refs) fd.append('reference_image', r.url);
-      if (genType === 'video' && voice) fd.set('voice_audio_id', voice.id);
-
-      const res = await generateMedia(fd);
+      const apiRes = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: genType,
+          prompt,
+          referenceImages: showRefs ? refs.map((r) => r.url) : [],
+          voiceAudioId: genType === 'video' && voice ? voice.id : null,
+        }),
+      });
+      const res = await apiRes.json();
+      if (!apiRes.ok) throw new Error(res.error ?? 'Error al generar');
 
       if (genType === 'text') {
         setResult({ assetId: res.assetId, type: 'text', text: res.text });
