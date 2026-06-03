@@ -22,12 +22,26 @@ import {
   type SelectedReference,
 } from '../chat/reference-picker';
 import { AudioPicker } from './audio-picker';
-import {
-  getAssetPreview,
-  saveAsset,
-  discardAsset,
-  type AudioReference,
-} from './actions';
+import type { AudioReference } from './actions';
+
+async function fetchPreview(assetId: string) {
+  const r = await fetch(`/api/generate/asset?assetId=${assetId}`);
+  if (!r.ok) throw new Error('preview');
+  return r.json() as Promise<{
+    status: 'processing' | 'ready' | 'failed';
+    type: AssetType;
+    url: string | null;
+  }>;
+}
+
+async function assetAction(assetId: string, action: 'save' | 'discard') {
+  const r = await fetch('/api/generate/asset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetId, action }),
+  });
+  if (!r.ok) throw new Error((await r.json()).error ?? action);
+}
 
 const TYPES: { value: AssetType; label: string }[] = [
   { value: 'image', label: 'Imagen' },
@@ -101,7 +115,7 @@ export default function GeneratePage() {
     while (!pollCancel.current) {
       let p = null;
       try {
-        p = await getAssetPreview(assetId);
+        p = await fetchPreview(assetId);
       } catch {
         /* reintentar */
       }
@@ -152,7 +166,7 @@ export default function GeneratePage() {
         return;
       }
       if (res.status === 'ready') {
-        const p = await getAssetPreview(res.assetId);
+        const p = await fetchPreview(res.assetId);
         setPreviewUrl(p.url);
         setResult({ assetId: res.assetId, type: genType });
         setPhase('preview');
@@ -169,7 +183,7 @@ export default function GeneratePage() {
   async function save() {
     if (!result) return;
     try {
-      await saveAsset(result.assetId);
+      await assetAction(result.assetId, 'save');
       reset();
       setMessage('✅ Guardado en Archivos.');
     } catch (e) {
@@ -180,7 +194,7 @@ export default function GeneratePage() {
   async function discard() {
     if (result) {
       try {
-        await discardAsset(result.assetId);
+        await assetAction(result.assetId, 'discard');
       } catch {
         /* ignore */
       }
