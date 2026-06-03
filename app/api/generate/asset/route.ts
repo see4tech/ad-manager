@@ -10,8 +10,10 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabase } from '@/lib/supabase';
+import { getVideoJob, downloadVideo } from '@/lib/openrouter';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 const BUCKET = 'assets';
 const TTL = 60 * 60;
@@ -33,20 +35,67 @@ export async function GET(req: NextRequest) {
 
   const { data: asset, error } = await supabase
     .from('assets')
-    .select('type, status, content_url, is_draft')
+    .select('type, status, content_url, is_draft, provider_job_id, voice_audio_path')
     .eq('id', assetId)
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  if (error || !asset) {
+    return NextResponse.json({ error: error?.message ?? 'No encontrado.' }, { status: 404 });
+  }
+
+  let status: string = asset.status;
+  let contentUrl: string | null = asset.content_url;
+
+  // Auto-finalización de video (no depende del webhook de OpenRouter):
+  // si el video sigue 'processing' y no requiere lip-sync, consultamos el
+  // estado en OpenRouter y, si está listo, descargamos y guardamos aquí mismo.
+  if (
+    asset.type === 'video' &&
+    status === 'processing' &&
+    asset.provider_job_id &&
+    !asset.voice_audio_path
+  ) {
+    try {
+      const job = await getVideoJob(asset.provider_job_id);
+      if (job.status === 'failed') {
+        await supabase
+          .from('assets')
+          .update({ status: 'failed' })
+          .eq('id', assetId)
+          .eq('status', 'processing');
+        status = 'failed';
+      } else if (job.status === 'completed') {
+        const dl = await downloadVideo(asset.provider_job_id);
+        const path = `${user.id}/generated/${Date.now()}.mp4`;
+        const { error: upErr } = await supabase.storage
+          .from(BUCKET)
+          .upload(path, Buffer.from(dl.buffer), {
+            contentType: dl.contentType,
+            upsert: false,
+          });
+        if (!upErr) {
+          await supabase
+            .from('assets')
+            .update({ content_url: path, status: 'ready' })
+            .eq('id', assetId)
+            .eq('status', 'processing');
+          status = 'ready';
+          contentUrl = path;
+        }
+      }
+    } catch {
+      /* reintentar en el siguiente poll */
+    }
+  }
 
   let url: string | null = null;
-  if (asset.content_url && asset.status === 'ready') {
+  if (contentUrl && status === 'ready') {
     const { data: signed } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(asset.content_url, TTL);
+      .createSignedUrl(contentUrl, TTL);
     url = signed?.signedUrl ?? null;
   }
   return NextResponse.json({
-    status: asset.status,
+    status,
     type: asset.type,
     url,
     isDraft: Boolean(asset.is_draft),
