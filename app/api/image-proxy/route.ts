@@ -62,8 +62,12 @@ export async function GET(req: NextRequest) {
     status: 200,
     headers: {
       'Content-Type': contentType,
-      // Cacheable 1h — suficiente para la duración del job de video.
-      'Cache-Control': 'public, max-age=3600',
+      // NO cachear en CDN: Netlify ignoraba el query string y servía
+      // la primera respuesta para todos los ?id=. Cada imagen es distinta.
+      'Cache-Control': 'private, no-store',
+      // Forzar cache key único por URL completa (query string incluido).
+      'Netlify-CDN-Cache-Control': 'no-store',
+      'Vary': 'Accept',
     },
   });
 }
