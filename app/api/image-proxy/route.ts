@@ -20,28 +20,36 @@ const BUCKET = 'assets';
 
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id');
-  if (!id) {
-    return new NextResponse('Falta id.', { status: 400 });
+  // También acepta ?path=<storage-path> para Supabase Signed URLs extraídas por el backend.
+  const storagePath = req.nextUrl.searchParams.get('path');
+
+  if (!id && !storagePath) {
+    return new NextResponse('Falta id o path.', { status: 400 });
   }
 
   const supabase = createServiceSupabase();
+  let contentPath: string;
 
-  // Verificar que el activo existe y es una imagen.
-  const { data: asset, error } = await supabase
-    .from('assets')
-    .select('content_url, type')
-    .eq('id', id)
-    .in('type', ['image'])
-    .single();
-
-  if (error || !asset?.content_url) {
-    return new NextResponse('No encontrado.', { status: 404 });
+  if (id) {
+    // Buscar por asset ID
+    const { data: asset, error } = await supabase
+      .from('assets')
+      .select('content_url, type')
+      .eq('id', id)
+      .single();
+    if (error || !asset?.content_url) {
+      return new NextResponse(`No encontrado. id=${id}`, { status: 404 });
+    }
+    contentPath = asset.content_url;
+  } else {
+    // storagePath directo (viene del backend al extraerlo de una Signed URL)
+    contentPath = storagePath!;
   }
 
   // Descargar el binario desde Storage con service role (sin Signed URL).
   const { data: blob, error: dlErr } = await supabase.storage
     .from(BUCKET)
-    .download(asset.content_url);
+    .download(contentPath);
 
   if (dlErr || !blob) {
     return new NextResponse('Error al obtener imagen.', { status: 502 });

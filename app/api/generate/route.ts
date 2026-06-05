@@ -70,8 +70,21 @@ export async function POST(req: NextRequest) {
       const assetId = rawIds[i] ?? null;
 
       if (assetId) {
-        // Referencia de la librería: usar proxy con el ID (URL limpia, sin expirar)
+        // Referencia de la librería con ID conocido → proxy por ID
         out.push(`${SITE}/api/image-proxy?id=${assetId}`);
+        continue;
+      }
+
+      if (ref.includes('supabase.co/storage')) {
+        // Signed URL de Supabase: extraer el path del bucket y usar el proxy.
+        // Formato: https://<project>.supabase.co/storage/v1/object/sign/<bucket>/<path>?token=...
+        const m = /\/sign\/[^/]+\/(.+?)(?:\?|$)/.exec(ref);
+        if (m?.[1]) {
+          out.push(`${SITE}/api/image-proxy?path=${encodeURIComponent(m[1])}`);
+          continue;
+        }
+        // Fallback: intentar pasar la URL directa (puede fallar)
+        out.push(ref);
         continue;
       }
 
