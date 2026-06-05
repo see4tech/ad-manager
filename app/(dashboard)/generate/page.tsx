@@ -154,7 +154,12 @@ export default function GeneratePage() {
         body: JSON.stringify({
           type: genType,
           prompt,
+          // Mandamos tanto el URL como el id del activo (si viene de la librería).
+          // El backend usa el id para el proxy /api/image-proxy (URLs HTTP limpias).
           referenceImages: showRefs ? refs.map((r) => r.url) : [],
+          referenceAssetIds: showRefs
+            ? refs.map((r) => ('id' in r ? (r as { id?: string }).id ?? null : null))
+            : [],
           voiceAudioId: genType === 'video' && voice ? voice.id : null,
         }),
       });

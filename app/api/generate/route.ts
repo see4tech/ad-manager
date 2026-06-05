@@ -28,6 +28,8 @@ interface Body {
   type: AssetType;
   prompt: string;
   referenceImages?: string[];
+  /** IDs de activos de la librería — se usan para el proxy de imágenes. */
+  referenceAssetIds?: (string | null)[];
   voiceAudioId?: string | null;
 }
 
@@ -49,10 +51,65 @@ export async function POST(req: NextRequest) {
 
   const prompt = (body.prompt ?? '').trim();
   const type = (body.type ?? 'text') as AssetType;
-  const refs = (body.referenceImages ?? []).filter(Boolean);
+  const rawRefs = (body.referenceImages ?? []).filter(Boolean);
+  const rawIds = (body.referenceAssetIds ?? []);
   if (!prompt) {
     return NextResponse.json({ error: 'El prompt es obligatorio.' }, { status: 400 });
   }
+
+  /**
+   * Convierte referencias a URLs HTTP limpias accesibles por OpenRouter:
+   * - Si tenemos el assetId de la librería → /api/image-proxy?id=<id>  ✅
+   * - Si es data URL (base64, equipo) → sube a Storage + proxy              ✅
+   * - Si es URL externa ya limpia → pasa tal cual                           ✅
+   */
+  async function resolveRefs(): Promise<string[]> {
+    const out: string[] = [];
+    for (let i = 0; i < rawRefs.length; i++) {
+      const ref = rawRefs[i];
+      const assetId = rawIds[i] ?? null;
+
+      if (assetId) {
+        // Referencia de la librería: usar proxy con el ID (URL limpia, sin expirar)
+        out.push(`${SITE}/api/image-proxy?id=${assetId}`);
+        continue;
+      }
+
+      if (ref.startsWith('data:')) {
+        // Base64 desde el equipo: subir a Storage y servir vía proxy
+        const match = /^data:([^;]+);base64,(.+)$/s.exec(ref);
+        if (!match) continue;
+        const [, mime, b64] = match;
+        const ext = mime.split('/')[1] ?? 'png';
+        if (!user) continue;
+        const path = `${user.id}/ref-tmp/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from(BUCKET)
+          .upload(path, Buffer.from(b64, 'base64'), { contentType: mime, upsert: false });
+        if (upErr) continue;
+        const { data: row } = await supabase
+          .from('assets')
+          .insert({
+            user_id: user!.id,
+            name: 'ref-tmp',
+            type: 'image',
+            content_url: path,
+            status: 'ready',
+            is_draft: true,
+          })
+          .select('id')
+          .single();
+        if (row?.id) out.push(`${SITE}/api/image-proxy?id=${row.id}`);
+        continue;
+      }
+
+      // URL externa normal
+      out.push(ref);
+    }
+    return out;
+  }
+
+  const refs = await resolveRefs();
 
   try {
     // ── Texto ──

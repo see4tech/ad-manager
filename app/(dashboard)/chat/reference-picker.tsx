@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils';
 import { listImageReferences, type ImageReference } from './actions';
 
 export interface SelectedReference {
+  /** Presente cuando viene de la librería (permite usar el proxy de imágenes). */
+  id?: string;
   name: string;
   url: string;
 }
@@ -51,7 +53,7 @@ export function ReferencePicker({
   function confirm() {
     const refs = items
       .filter((i) => selected.has(i.id))
-      .map((i) => ({ name: i.name, url: i.url }));
+      .map((i) => ({ id: i.id, name: i.name, url: i.url }));
     onAdd(refs);
     setSelected(new Set());
     setOpen(false);
